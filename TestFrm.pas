@@ -35,7 +35,7 @@ type
     procedure Execute; override;
   end;
 
-  TForm54 = class(TForm)
+  TFormTest = class(TForm)
     ButtonNoSync: TButton;
     MemoLog: TMemo;
     ButtonTCriticalSection: TButton;
@@ -45,11 +45,15 @@ type
     procedure ButtonNoSyncClick(ASender: TObject);
     procedure FormCreate(ASender: TObject);
     procedure FormDestroy(ASender: TObject);
+    procedure EditTestIterationCountEnter(ASender: TObject);
+    procedure EditTestIterationCountExit(ASender: TObject);
   private
     { Private declarations }
     FResource: TMyResource;
     function GetIterationCount: Integer;
     function GetThreadCount: Integer;
+    function GetCleanedValue(const AIntStringValue: string): string;
+    function IntStrValue(const AIntValue: Integer): string;
     procedure CreateThreads(var AThreadsArray: TArray<TMyThread>; const AThreadCount, ATestType, AIterationCount: Integer);
     function BeforeRun: TStopwatch;
     procedure AfterRun(const AStopwatch: TStopwatch; const ATestButton: TButton);
@@ -58,13 +62,13 @@ type
   end;
 
 var
-  Form54: TForm54;
+  FormTest: TFormTest;
 
 implementation
 
 {$R *.dfm}
 
-function TForm54.BeforeRun: TStopwatch;
+function TFormTest.BeforeRun: TStopwatch;
 begin
   Screen.Cursor := crHourGlass;
   Enabled := False;
@@ -81,7 +85,7 @@ begin
   Result := TStopwatch.StartNew;
 end;
 
-procedure TForm54.AfterRun(const AStopwatch: TStopwatch; const ATestButton: TButton);
+procedure TFormTest.AfterRun(const AStopwatch: TStopwatch; const ATestButton: TButton);
 
   function  GetTestName(const ATestButton: TButton): string;
   var
@@ -113,13 +117,13 @@ begin
 
   LTestName := GetTestName(ATestButton);
 
-  MemoLog.Lines.Add(LTestName +  ' => Value: ' + FormatFloat('#,##0', FResource.FValue)
+  MemoLog.Lines.Add(LTestName +  ' => Value: ' + IntStrValue(FResource.FValue)
     + ', Time: ' + FormatFloat('#,##0.000', AStopwatch.Elapsed.TotalSeconds) + ' sec');
 
   Screen.Cursor := crDefault;
 end;
 
-procedure TForm54.ButtonNoSyncClick(ASender: TObject);
+procedure TFormTest.ButtonNoSyncClick(ASender: TObject);
 var
   LTestType: Integer;
   LCurrentThread: TMyThread;
@@ -141,7 +145,7 @@ begin
   end;
 end;
 
-procedure TForm54.CreateThreads(var AThreadsArray: TArray<TMyThread>; const AThreadCount, ATestType,
+procedure TFormTest.CreateThreads(var AThreadsArray: TArray<TMyThread>; const AThreadCount, ATestType,
   AIterationCount: Integer);
 var
   LIndex: Integer;
@@ -152,29 +156,52 @@ begin
     AThreadsArray[LIndex] := TMyThread.Create(FResource, ATestType, AIterationCount);
 end;
 
-procedure TForm54.FormCreate(ASender: TObject);
+procedure TFormTest.EditTestIterationCountEnter(ASender: TObject);
+begin
+  TEdit(ASender).Text := GetCleanedValue(TEdit(ASender).Text);
+end;
+
+procedure TFormTest.EditTestIterationCountExit(ASender: TObject);
+var
+  LCleanValue: string;
+begin
+  LCleanValue := GetCleanedValue(TEdit(ASender).Text);
+
+  TEdit(ASender).Text := IntStrValue(StrToIntDef(LCleanValue, 0));
+end;
+
+procedure TFormTest.FormCreate(ASender: TObject);
 begin
   FResource := TMyResource.Create;
 end;
 
-procedure TForm54.FormDestroy(ASender: TObject);
+procedure TFormTest.FormDestroy(ASender: TObject);
 begin
   FResource.Free;
 end;
 
-function TForm54.GetIterationCount: Integer;
+function TFormTest.GetCleanedValue(const AIntStringValue: string): string;
+begin
+  Result := AIntStringValue.Replace(' ', '').Replace(FormatSettings.ThousandSeparator, '');
+end;
+
+function TFormTest.GetIterationCount: Integer;
 var
   LHandledValue: string;
 begin
-  LHandledValue := EditTestIterationCount.Text;
-  LHandledValue := LHandledValue.Replace(' ', '').Replace(FormatSettings.DecimalSeparator, '');
+  LHandledValue := GetCleanedValue(EditTestIterationCount.Text);
 
   Result := StrToIntDef(LHandledValue, 0);
 end;
 
-function TForm54.GetThreadCount: Integer;
+function TFormTest.GetThreadCount: Integer;
 begin
   Result := SpinEditThreadCount.Value;
+end;
+
+function TFormTest.IntStrValue(const AIntValue: Integer): string;
+begin
+  Result := FormatFloat('#,##0', AIntValue);
 end;
 
 { TMyResource }
