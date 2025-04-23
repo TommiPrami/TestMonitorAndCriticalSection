@@ -10,14 +10,13 @@ interface
 
 uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
-  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, SyncObjs;
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, System.SyncObjs, System.Diagnostics, Vcl.Samples.Spin;
 
 type
   TMyResource = class
   public
-    fCriticalSection: TCriticalSection;
-    fValue: int64;
-
+    FCriticalSection: TCriticalSection;
+    FValue: Int64;
     constructor Create;
     destructor Destroy; override;
   end;
@@ -25,28 +24,35 @@ type
   TMyThread = class(TThread)
   private
     fResource: TMyResource;
-    fTest: integer;
+    fTest: Integer;
     fIterationCount: integer;
     procedure Test0;
     procedure Test1;
     procedure Test2;
     procedure DoMath;
   public
-    constructor Create(aResource: TMyResource; aTest: integer; aIterationCount: integer);
+    constructor Create(const AResource: TMyResource; const ATest, AIterationCount: Integer);
     procedure Execute; override;
   end;
 
   TForm54 = class(TForm)
-    Button1: TButton;
-    Memo1: TMemo;
-    Button2: TButton;
-    Button3: TButton;
-    procedure Button1Click(Sender: TObject);
-    procedure FormCreate(Sender: TObject);
-    procedure FormDestroy(Sender: TObject);
+    ButtonNoSync: TButton;
+    MemoLog: TMemo;
+    ButtonTCriticalSection: TButton;
+    ButtonTMonitor: TButton;
+    EditTestIterationCount: TEdit;
+    SpinEditThreadCount: TSpinEdit;
+    procedure ButtonNoSyncClick(ASender: TObject);
+    procedure FormCreate(ASender: TObject);
+    procedure FormDestroy(ASender: TObject);
   private
     { Private declarations }
-    fResource: TMyResource;
+    FResource: TMyResource;
+    function GetIterationCount: Integer;
+    function GetThreadCount: Integer;
+    procedure CreateThreads(var AThreadsArray: TArray<TMyThread>; const AThreadCount, ATestType, AIterationCount: Integer);
+    function BeforeRun: TStopwatch;
+    procedure AfterRun(const AStopwatch: TStopwatch; const ATestButton: TButton);
   public
     { Public declarations }
   end;
@@ -58,78 +64,158 @@ implementation
 
 {$R *.dfm}
 
-procedure TForm54.Button1Click(Sender: TObject);
+function TForm54.BeforeRun: TStopwatch;
+begin
+  Screen.Cursor := crHourGlass;
+  Enabled := False;
+  ButtonNoSync.Enabled := Enabled;
+  ButtonTCriticalSection.Enabled := Enabled;
+  ButtonTMonitor.Enabled := Enabled;
+  EditTestIterationCount.Enabled := Enabled;
+  SpinEditThreadCount.Enabled := Enabled;
+  MemoLog.Enabled := Enabled;
+
+  // Give all time to breath and update GUI
+  Application.ProcessMessages;
+
+  Result := TStopwatch.StartNew;
+end;
+
+procedure TForm54.AfterRun(const AStopwatch: TStopwatch; const ATestButton: TButton);
+
+  function  GetTestName(const ATestButton: TButton): string;
+  var
+    LCaptionParts: TArray<string>;
+    LHigh: Integer;
+  begin
+    Result := '';
+    LCaptionParts := string(ATestButton.Caption).Split([' ']);
+
+    LHigh := High(LCaptionParts);
+    if LHigh >= 0 then
+      Result := LCaptionParts[LHigh];
+
+    Result := Result + StringOfChar(' ', 18 - Result.Length);
+  end;
+
 var
-  lTestType: integer;
-  lT1, lT2, lT3: TMyThread;
-  lStart: TDateTime;
+  LTestName: string;
 begin
-  // note:  not using try..finally here just for brevity
-  lStart := now;
-  fResource.fValue := 0;
-  lTestType := TButton(Sender).Tag;
+  AStopwatch.Stop;
 
-  lT1 := TMythread.Create(fResource, lTestType, 100000);
-  lT2 := TMythread.Create(fResource, lTestType, 100000);
-  lT3 := TMythread.Create(fResource, lTestType, 100000);
+  Enabled := True;
+  ButtonNoSync.Enabled := Enabled;
+  ButtonTCriticalSection.Enabled := Enabled;
+  ButtonTMonitor.Enabled := Enabled;
+  EditTestIterationCount.Enabled := Enabled;
+  SpinEditThreadCount.Enabled := Enabled;
+  MemoLog.Enabled := Enabled;
 
-  lT1.WaitFor;
-  lT2.WaitFor;
-  lT3.WaitFor;
+  LTestName := GetTestName(ATestButton);
 
-  Memo1.Lines.Add('Value: '+IntToStr(fResource.fValue) + ', Time: '+FloatToStr((now-lStart)*24*60*60));
+  MemoLog.Lines.Add(LTestName +  ' => Value: ' + FormatFloat('#,##0', FResource.FValue)
+    + ', Time: ' + FormatFloat('#,##0.000', AStopwatch.Elapsed.TotalSeconds) + ' sec');
 
-  lT1.Free;
-  lT2.Free;
-  lT3.Free;
+  Screen.Cursor := crDefault;
 end;
 
-procedure TForm54.FormCreate(Sender: TObject);
+procedure TForm54.ButtonNoSyncClick(ASender: TObject);
+var
+  LTestType: Integer;
+  LCurrentThread: TMyThread;
+  LStopWatch: TStopWatch;
+  LThreads: TArray<TMythread>;
 begin
-  fResource := TMyResource.Create;
+  FResource.FValue := 0;
+
+  LStopWatch := BeforeRun;
+  CreateThreads(LThreads, GetThreadCount, TButton(ASender).Tag, GetIterationCount);
+  try
+    for LCurrentThread in LThreads do
+      LCurrentThread.WaitFor;
+
+    AfterRun(LStopWatch, TButton(ASender));
+  finally
+    for LCurrentThread in LThreads do
+      LCurrentThread.Free;
+  end;
 end;
 
-procedure TForm54.FormDestroy(Sender: TObject);
+procedure TForm54.CreateThreads(var AThreadsArray: TArray<TMyThread>; const AThreadCount, ATestType,
+  AIterationCount: Integer);
+var
+  LIndex: Integer;
 begin
-  fResource.Free;
+  SetLength(AThreadsArray, AThreadCount);
+
+  for LIndex := Low(AThreadsArray) to High(AThreadsArray) do
+    AThreadsArray[LIndex] := TMyThread.Create(FResource, ATestType, AIterationCount);
 end;
 
+procedure TForm54.FormCreate(ASender: TObject);
+begin
+  FResource := TMyResource.Create;
+end;
+
+procedure TForm54.FormDestroy(ASender: TObject);
+begin
+  FResource.Free;
+end;
+
+function TForm54.GetIterationCount: Integer;
+var
+  LHandledValue: string;
+begin
+  LHandledValue := EditTestIterationCount.Text;
+  LHandledValue := LHandledValue.Replace(' ', '').Replace(FormatSettings.DecimalSeparator, '');
+
+  Result := StrToIntDef(LHandledValue, 0);
+end;
+
+function TForm54.GetThreadCount: Integer;
+begin
+  Result := SpinEditThreadCount.Value;
+end;
 
 { TMyResource }
 
 constructor TMyResource.Create;
 begin
-  inherited;
-  fCriticalSection := TCriticalSection.create;
+  inherited Create;
+
+  FCriticalSection := TCriticalSection.create;
 end;
 
 destructor TMyResource.Destroy;
 begin
-  fCriticalSection.Free;
-  inherited;
+  FCriticalSection.Free;
+
+  inherited Destroy;
 end;
 
 { TMyThread }
 
-constructor TMyThread.Create(aResource: TMyResource; aTest, aIterationCount: integer);
+constructor TMyThread.Create(const AResource: TMyResource; const ATest, AIterationCount: Integer);
 begin
-  inherited Create(true);
-  fResource := aResource;
-  fTest := aTest;
-  fIterationCount := aIterationCount;
-  resume;
+  inherited Create(True);
+
+  FResource := AResource;
+  FTest := ATest;
+  FIterationCount := AIterationCount;
+
+  Resume;
 end;
 
 procedure TMyThread.DoMath;
 begin
-  fResource.fValue := fResource.fValue+3;
-  fResource.fValue := fResource.fValue-3;
-  fResource.fValue := fResource.fValue+1;
+  fResource.fValue := fResource.fValue + 3;
+  fResource.fValue := fResource.fValue - 3;
+  fResource.fValue := fResource.fValue + 1;
 end;
 
 procedure TMyThread.Execute;
 begin
-  case fTest of
+  case FTest of
     0: Test0;
     1: Test1;
     2: Test2;
@@ -138,44 +224,46 @@ end;
 
 procedure TMyThread.Test0;
 var
-  i: integer;
+  LIndex: integer;
 begin
   // This test will execute the math problem without any thread synching
   // Note that this test will NOT correctly calculate the final resource value because it is not thread synchronized.
-  for i := 1 to fIterationcount do
-  begin
+  for LIndex := 1 to FIterationcount do
+  try
     DoMath;
+  finally
+    // DoNothing
   end;
 end;
 
 procedure TMyThread.Test1;
 var
-  i: integer;
+  LIndex: integer;
 begin
   // this test will execute the math problem using the CriticalSection
-  for i := 1 to fIterationcount do
+  for LIndex := 1 to FIterationcount do
   begin
-    fResource.fCriticalSection.Enter;
+    FResource.FCriticalSection.Enter;
     try
       DoMath;
     finally
-      fResource.fCriticalSection.Leave;
+      FResource.FCriticalSection.Leave;
     end;
   end;
 end;
 
 procedure TMyThread.Test2;
 var
-  i: integer;
+  LIndex: integer;
 begin
   // this test will execute the math problem using TMonitor
-  for i := 1 to fIterationcount do
+  for LIndex := 1 to fIterationcount do
   begin
-    System.TMonitor.Enter(fResource);
+    System.TMonitor.Enter(FResource);
     try
       DoMath;
     finally
-      System.TMonitor.Exit(fResource);
+      System.TMonitor.Exit(FResource);
     end;
   end;
 end;
